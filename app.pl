@@ -21,14 +21,14 @@ use constant LANGUAGE_VERSION => sprintf("%vd", $^V);
 my $JSON = JSON->new->utf8->allow_nonref->canonical(0);
 
 my @ENDPOINTS = (
-    { method => "GET", path => "/",                       query => [] },
-    { method => "GET", path => "/health",                 query => [] },
-    { method => "GET", path => "/v1/years",               query => [] },
-    { method => "GET", path => "/v1/speakers",            query => ["year"] },
-    { method => "GET", path => "/v1/speakers/:slug",      query => [] },
+    { method => "GET", path => "/",                        query => [] },
+    { method => "GET", path => "/health",                  query => [] },
+    { method => "GET", path => "/v1/years",                query => [] },
+    { method => "GET", path => "/v1/speakers",             query => ["year"] },
+    { method => "GET", path => "/v1/speakers/:slug",       query => [] },
     { method => "GET", path => "/v1/speakers/:year/:slug", query => [] },
-    { method => "GET", path => "/v1/sponsors",            query => ["year"] },
-    { method => "GET", path => "/v1/sponsors/:slug",      query => [] },
+    { method => "GET", path => "/v1/sponsors",             query => ["year"] },
+    { method => "GET", path => "/v1/sponsors/:slug",       query => [] },
     { method => "GET", path => "/v1/sponsors/:year/:slug", query => [] },
 );
 
@@ -44,12 +44,24 @@ my $SPONSOR_COLS =
 my $TALK_COLS =
   "slug, title, description, format, youtube_id, year, speaker_slug, languages, topics";
 
-my $DBH;
+our $DBH;
+our $SQL_COUNT     = 0;
+our $CONNECT_COUNT = 0;
+our $CONNECT_FN;
+our $QUERY_FN;
+
+sub listen_host { "::" }
+
+sub reset_counts {
+    $SQL_COUNT     = 0;
+    $CONNECT_COUNT = 0;
+}
 
 sub parse_db_url {
     my ($url) = @_;
     $url ||= "postgres://postgres:postgres\@127.0.0.1:5432/carolina_dev";
     if ($url =~ m{^dbi:}) {
+        $url .= ";sslmode=disable" unless $url =~ /sslmode=/;
         return ($url, undef, undef);
     }
     if (
@@ -68,22 +80,23 @@ sub parse_db_url {
         $port ||= 5432;
         $db =~ s/[?#].*//;
         my $dsn = "dbi:Pg:host=$host;port=$port;dbname=$db";
+        my $sslmode = "disable";
         if ($query) {
             my %q = map { split /=/, $_, 2 } split /&/, $query;
-            $dsn .= ";sslmode=$q{sslmode}" if $q{sslmode};
+            $sslmode = $q{sslmode} if $q{sslmode};
         }
+        $dsn .= ";sslmode=$sslmode";
         return ($dsn, $user, $pass);
     }
-    return ("dbi:Pg:dbname=$url", undef, undef);
+    return ("dbi:Pg:dbname=$url;sslmode=disable", undef, undef);
 }
 
-sub dbh {
-    if ($DBH && $DBH->ping) {
-        return $DBH;
-    }
+sub open_connection {
+    $CONNECT_COUNT++;
+    return $CONNECT_FN->() if $CONNECT_FN;
     my $url = $ENV{DATABASE_URL} // "postgres://postgres:postgres\@127.0.0.1:5432/carolina_dev";
     my ($dsn, $user, $pass) = parse_db_url($url);
-    $DBH = DBI->connect(
+    return DBI->connect(
         $dsn, $user, $pass,
         {
             RaiseError     => 1,
@@ -92,7 +105,27 @@ sub dbh {
             PrintError     => 0,
         }
     );
+}
+
+sub dbh {
+    if ($DBH && $DBH->ping) {
+        return $DBH;
+    }
+    $DBH = open_connection();
     return $DBH;
+}
+
+sub db_query {
+    my ($sql, @bind) = @_;
+    $SQL_COUNT++;
+    return $QUERY_FN->($sql, \@bind) if $QUERY_FN;
+    return dbh()->selectall_arrayref($sql, { Slice => {} }, @bind);
+}
+
+sub db_query_one {
+    my ($sql, @bind) = @_;
+    my $rows = db_query($sql, @bind);
+    return $rows && @$rows ? $rows->[0] : undef;
 }
 
 sub as_string_array {
@@ -153,22 +186,21 @@ sub uniq_tags {
 
 sub talks_for {
     my ($slug, $year) = @_;
-    my $sql = "SELECT $TALK_COLS FROM v1_talks WHERE speaker_slug = ?";
+    my $sql  = "SELECT $TALK_COLS FROM v1_talks WHERE speaker_slug = ?";
     my @bind = ($slug);
     if (defined $year) {
         $sql .= " AND year = ?";
         push @bind, $year;
     }
     $sql .= " ORDER BY year DESC";
-    my $rows = dbh()->selectall_arrayref($sql, { Slice => {} }, @bind);
+    my $rows = db_query($sql, @bind);
     return [ map { clean($_) } @$rows ];
 }
 
 sub talk_years {
     my ($slug) = @_;
-    my $rows = dbh()->selectall_arrayref(
+    my $rows = db_query(
         "SELECT DISTINCT year FROM v1_talks WHERE speaker_slug = ? ORDER BY year DESC",
-        { Slice => {} },
         $slug
     );
     return [ map { 0 + $_->{year} } @$rows ];
@@ -176,9 +208,8 @@ sub talk_years {
 
 sub sponsor_years {
     my ($slug) = @_;
-    my $rows = dbh()->selectall_arrayref(
+    my $rows = db_query(
         "SELECT DISTINCT year FROM v1_sponsorships WHERE sponsor_slug = ? ORDER BY year DESC",
-        { Slice => {} },
         $slug
     );
     return [ map { 0 + $_->{year} } @$rows ];
@@ -186,18 +217,82 @@ sub sponsor_years {
 
 sub load_speaker {
     my ($slug) = @_;
-    my $row = dbh()->selectrow_hashref("SELECT $SPEAKER_COLS FROM v1_speakers WHERE slug = ?", {}, $slug);
+    my $row = db_query_one("SELECT $SPEAKER_COLS FROM v1_speakers WHERE slug = ?", $slug);
     return clean($row);
+}
+
+sub list_speakers {
+    my ($year) = @_;
+    if (!defined $year) {
+        my $rows = db_query("SELECT $SPEAKER_COLS FROM v1_speakers ORDER BY last_name, first_name");
+        return [ map { clean($_) } @$rows ];
+    }
+    my $rows = db_query(
+        "SELECT $SPEAKER_COLS FROM v1_speakers "
+          . "WHERE slug IN (SELECT speaker_slug FROM v1_talks WHERE year = ?) "
+          . "ORDER BY last_name, first_name",
+        $year
+    );
+    return attach_year_tags([ map { clean($_) } @$rows ], $year);
+}
+
+sub attach_year_tags {
+    my ($speakers, $year) = @_;
+    return $speakers unless @$speakers;
+    my @slugs    = map { $_->{slug} } @$speakers;
+    my $talks_by = load_talks_for_year($year);
+    my $years_by = load_years_for_slugs(\@slugs);
+    for my $sp (@$speakers) {
+        my $slug  = $sp->{slug};
+        my $talks = $talks_by->{$slug} // [];
+        my $years = $years_by->{$slug} // [];
+        $sp->{year}      = $year;
+        $sp->{talks}     = $talks;
+        $sp->{languages} = uniq_tags($talks, "languages");
+        $sp->{topics}    = uniq_tags($talks, "topics");
+        $sp->{years}     = $years;
+    }
+    return $speakers;
+}
+
+sub load_talks_for_year {
+    my ($year) = @_;
+    my $rows = db_query(
+        "SELECT $TALK_COLS FROM v1_talks WHERE year = ? ORDER BY speaker_slug, year DESC",
+        $year
+    );
+    my %by;
+    for my $row (@$rows) {
+        my $talk = clean($row);
+        my $slug = $talk->{speaker_slug} // "";
+        push @{ $by{$slug} }, $talk;
+    }
+    return \%by;
+}
+
+sub load_years_for_slugs {
+    my ($slugs) = @_;
+    return {} unless @$slugs;
+    my $placeholders = join ",", ("?") x @$slugs;
+    my $rows         = db_query(
+        "SELECT DISTINCT speaker_slug, year FROM v1_talks WHERE speaker_slug IN ($placeholders) ORDER BY speaker_slug, year DESC",
+        @$slugs
+    );
+    my %by;
+    for my $row (@$rows) {
+        push @{ $by{ $row->{speaker_slug} } }, 0 + $row->{year};
+    }
+    return \%by;
 }
 
 sub send_json {
     my ($client, $status, $payload) = @_;
     my $body = $JSON->encode($payload);
     my $resp = HTTP::Response->new($status);
-    $resp->header("Content-Type"          => "application/json");
-    $resp->header("X-Polyglot-Language"   => LANGUAGE);
-    $resp->header("X-Polyglot-Framework"  => FRAMEWORK);
-    $resp->header("Content-Length"        => length($body));
+    $resp->header("Content-Type"         => "application/json");
+    $resp->header("X-Polyglot-Language"  => LANGUAGE);
+    $resp->header("X-Polyglot-Framework" => FRAMEWORK);
+    $resp->header("Content-Length"       => length($body));
     $resp->content($body);
     $client->send_response($resp);
 }
@@ -210,7 +305,7 @@ sub parse_query {
     for my $pair (split /&/, $query) {
         my ($k, $v) = split /=/, $pair, 2;
         next unless defined $k;
-        $q{uri_unescape($k)} = defined $v ? uri_unescape($v) : "";
+        $q{ uri_unescape($k) } = defined $v ? uri_unescape($v) : "";
     }
     return \%q;
 }
@@ -235,44 +330,19 @@ sub route {
         return (200, { ok => JSON::true });
     }
     if ($path eq "/v1/years") {
-        my $rows = dbh()->selectall_arrayref(
-            "SELECT year, slug, name, status FROM v1_years ORDER BY year DESC",
-            { Slice => {} }
-        );
+        my $rows = db_query("SELECT year, slug, name, status FROM v1_years ORDER BY year DESC");
         return (200, { data => [ map { clean($_) } @$rows ] });
     }
     if ($path eq "/v1/speakers") {
+        my $year;
         if (defined $qs->{year} && length $qs->{year}) {
-            my $year = 0 + $qs->{year};
-            my $rows = dbh()->selectall_arrayref(
-                "SELECT $SPEAKER_COLS FROM v1_speakers "
-                  . "WHERE slug IN (SELECT speaker_slug FROM v1_talks WHERE year = ?) "
-                  . "ORDER BY last_name, first_name",
-                { Slice => {} },
-                $year
-            );
-            my @speakers;
-            for my $row (@$rows) {
-                my $sp    = clean($row);
-                my $talks = talks_for($sp->{slug}, $year);
-                $sp->{year}      = $year;
-                $sp->{talks}     = $talks;
-                $sp->{languages} = uniq_tags($talks, "languages");
-                $sp->{topics}    = uniq_tags($talks, "topics");
-                $sp->{years}     = talk_years($sp->{slug});
-                push @speakers, $sp;
-            }
-            return (200, { data => \@speakers });
+            $year = 0 + $qs->{year};
         }
-        my $rows = dbh()->selectall_arrayref(
-            "SELECT $SPEAKER_COLS FROM v1_speakers ORDER BY last_name, first_name",
-            { Slice => {} }
-        );
-        return (200, { data => [ map { clean($_) } @$rows ] });
+        return (200, { data => list_speakers($year) });
     }
     if (@$parts == 4 && $parts->[0] eq "v1" && $parts->[1] eq "speakers" && $parts->[2] =~ /^\d+$/) {
-        my $year = 0 + $parts->[2];
-        my $slug = $parts->[3];
+        my $year    = 0 + $parts->[2];
+        my $slug    = $parts->[3];
         my $speaker = load_speaker($slug);
         return (404, { error => "not_found" }) unless $speaker;
         my $talks = talks_for($slug, $year);
@@ -297,26 +367,22 @@ sub route {
     if ($path eq "/v1/sponsors") {
         my $rows;
         if (defined $qs->{year} && length $qs->{year}) {
-            $rows = dbh()->selectall_arrayref(
+            $rows = db_query(
                 "SELECT $YEAR_SPONSOR_COLS FROM v1_year_sponsors WHERE year = ? ORDER BY name",
-                { Slice => {} },
                 0 + $qs->{year}
             );
         }
         else {
-            $rows = dbh()->selectall_arrayref(
-                "SELECT $SPONSOR_COLS FROM v1_sponsors ORDER BY name",
-                { Slice => {} }
-            );
+            $rows = db_query("SELECT $SPONSOR_COLS FROM v1_sponsors ORDER BY name");
         }
         return (200, { data => [ map { clean($_) } @$rows ] });
     }
     if (@$parts == 4 && $parts->[0] eq "v1" && $parts->[1] eq "sponsors" && $parts->[2] =~ /^\d+$/) {
         my $year = 0 + $parts->[2];
         my $slug = $parts->[3];
-        my $row  = dbh()->selectrow_hashref(
+        my $row  = db_query_one(
             "SELECT $YEAR_SPONSOR_COLS FROM v1_year_sponsors WHERE year = ? AND slug = ?",
-            {}, $year, $slug
+            $year, $slug
         );
         $row = clean($row);
         return (404, { error => "not_found" }) unless $row;
@@ -327,14 +393,10 @@ sub route {
     }
     if (@$parts == 3 && $parts->[0] eq "v1" && $parts->[1] eq "sponsors") {
         my $slug = $parts->[2];
-        my $row  = dbh()->selectrow_hashref("SELECT $SPONSOR_COLS FROM v1_sponsors WHERE slug = ?", {}, $slug);
+        my $row  = db_query_one("SELECT $SPONSOR_COLS FROM v1_sponsors WHERE slug = ?", $slug);
         $row = clean($row);
         return (404, { error => "not_found" }) unless $row;
-        my $sponsorships = dbh()->selectall_arrayref(
-            "SELECT * FROM v1_sponsorships WHERE sponsor_slug = ?",
-            { Slice => {} },
-            $slug
-        );
+        my $sponsorships = db_query("SELECT * FROM v1_sponsorships WHERE sponsor_slug = ?", $slug);
         $row->{sponsorships} = [ map { clean($_) } @$sponsorships ];
         return (200, { data => $row });
     }
@@ -353,8 +415,8 @@ sub register_with_elixir {
         "$url/internal/api-endpoints/register",
         {
             headers => {
-                Authorization    => "Bearer $token",
-                "Content-Type"   => "application/json",
+                Authorization  => "Bearer $token",
+                "Content-Type" => "application/json",
             },
             content => $JSON->encode(
                 {
@@ -378,38 +440,44 @@ sub register_with_elixir {
     }
 }
 
-my $port = $ENV{PORT} // "4006";
-register_with_elixir($port);
+sub main {
+    my $port = $ENV{PORT} // "4006";
+    register_with_elixir($port);
 
-my $daemon = HTTP::Daemon->new(
-    LocalAddr => "0.0.0.0",
-    LocalPort => $port,
-    ReuseAddr => 1,
-    Listen    => 16,
-) or die "HTTP::Daemon: $!";
-warn "carolina-codes-perl listening on :$port\n";
+    my $daemon = HTTP::Daemon->new(
+        LocalAddr => listen_host(),
+        LocalPort => $port,
+        ReuseAddr => 1,
+        Listen    => 16,
+        V6Only    => 0,
+    ) or die "HTTP::Daemon: $!";
+    warn "carolina-codes-perl listening on :$port\n";
 
-while (my $client = $daemon->accept) {
-    eval {
-        while (my $req = $client->get_request) {
-            if ($req->method ne "GET") {
-                send_json($client, 404, { error => "not_found" });
-                next;
+    while (my $client = $daemon->accept) {
+        eval {
+            while (my $req = $client->get_request) {
+                if ($req->method ne "GET") {
+                    send_json($client, 404, { error => "not_found" });
+                    next;
+                }
+                my $uri  = $req->uri;
+                my $path = $uri->path // "/";
+                $path =~ s{/+$}{} unless $path eq "/";
+                $path = "/" unless length $path;
+                my @parts = grep { length } split m{/}, $path;
+                my $qs    = parse_query($uri);
+                my ($status, $payload) = route($path, \@parts, $qs);
+                send_json($client, $status, $payload);
             }
-            my $uri  = $req->uri;
-            my $path = $uri->path // "/";
-            $path =~ s{/+$}{} unless $path eq "/";
-            $path = "/" unless length $path;
-            my @parts = grep { length } split m{/}, $path;
-            my $qs    = parse_query($uri);
-            my ($status, $payload) = route($path, \@parts, $qs);
-            send_json($client, $status, $payload);
-        }
-        1;
-    } or do {
-        my $err = $@ || "unknown error";
-        eval { send_json($client, 500, { error => "$err" }) };
-    };
-    $client->close;
-    undef $client;
+            1;
+        } or do {
+            my $err = $@ || "unknown error";
+            eval { send_json($client, 500, { error => "$err" }) };
+        };
+        $client->close;
+        undef $client;
+    }
 }
+
+main() unless caller;
+1;
