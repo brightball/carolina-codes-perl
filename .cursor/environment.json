@@ -1,0 +1,14 @@
+{
+  "name": "carolina-codes-perl",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "install": "cpanm --local-lib=local --installdeps .",
+  "ports": [
+    {
+      "name": "api",
+      "port": 4006
+    }
+  ]
+}
