@@ -33,7 +33,7 @@ jobs:
     steps:
       - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates libpq-dev gcc libc6-dev make curl tar
       - run: |
-          set -euo pipefail
+          set -eu
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
           host="${GITHUB_SERVER_URL#https://}"
@@ -43,9 +43,10 @@ jobs:
           git checkout --force "${GITHUB_SHA}"
       - run: make deps
       - run: |
-          set -euo pipefail
+          set -eu
           mkdir -p local/bin
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C local/bin gitleaks
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tgz
+          tar -xz -C local/bin -f /tmp/gitleaks.tgz gitleaks
           chmod +x local/bin/gitleaks
           local/bin/gitleaks version
       - run: perl .gitea/ci/env.pl upload
@@ -59,7 +60,7 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: |
-          set -euo pipefail
+          set -eu
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
           host="${GITHUB_SERVER_URL#https://}"
@@ -84,7 +85,7 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: |
-          set -euo pipefail
+          set -eu
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
           host="${GITHUB_SERVER_URL#https://}"
@@ -109,7 +110,7 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: |
-          set -euo pipefail
+          set -eu
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
           host="${GITHUB_SERVER_URL#https://}"
@@ -134,7 +135,7 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: |
-          set -euo pipefail
+          set -eu
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
           host="${GITHUB_SERVER_URL#https://}"
@@ -159,7 +160,7 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: |
-          set -euo pipefail
+          set -eu
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
           host="${GITHUB_SERVER_URL#https://}"
