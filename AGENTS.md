@@ -1,6 +1,6 @@
 # carolina-codes-perl
 
-Read-only v1 polyglot API. See README.md for install, run, and test commands.
+Read-only v1 polyglot API. See README.md for install, run, test, and quality-gate commands (`make check`, `make hooks`).
 
 ## Cursor Cloud specific instructions
 

@@ -24,25 +24,25 @@ my @ENDPOINTS = (
     { method => "GET", path => "/",                        query => [] },
     { method => "GET", path => "/health",                  query => [] },
     { method => "GET", path => "/v1/years",                query => [] },
-    { method => "GET", path => "/v1/speakers",             query => ["year"] },
+    { method => "GET", path => "/v1/speakers",             query => [ "year" ] },
     { method => "GET", path => "/v1/speakers/:slug",       query => [] },
     { method => "GET", path => "/v1/speakers/:year/:slug", query => [] },
-    { method => "GET", path => "/v1/sponsors",             query => ["year"] },
+    { method => "GET", path => "/v1/sponsors",             query => [ "year" ] },
     { method => "GET", path => "/v1/sponsors/:slug",       query => [] },
     { method => "GET", path => "/v1/sponsors/:year/:slug", query => [] },
 );
 
 my $SPEAKER_COLS =
-    "slug, first_name, last_name, name, tagline, bio, company, location, "
-  . "photo_path, twitter_url, linkedin_url, website_url, github_url, featured";
+      "slug, first_name, last_name, name, tagline, bio, company, location, "
+    . "photo_path, twitter_url, linkedin_url, website_url, github_url, featured";
 my $YEAR_SPONSOR_COLS =
-    "slug, name, website, logo_path, description, blurb, tier, featured, year, "
-  . "twitter_url, linkedin_url, youtube_url, instagram_url, facebook_url";
+      "slug, name, website, logo_path, description, blurb, tier, featured, year, "
+    . "twitter_url, linkedin_url, youtube_url, instagram_url, facebook_url";
 my $SPONSOR_COLS =
-    "slug, name, website, logo_path, description, twitter_url, linkedin_url, "
-  . "youtube_url, instagram_url, facebook_url";
+      "slug, name, website, logo_path, description, twitter_url, linkedin_url, "
+    . "youtube_url, instagram_url, facebook_url";
 my $TALK_COLS =
-  "slug, title, description, format, youtube_id, year, speaker_slug, languages, topics";
+    "slug, title, description, format, youtube_id, year, speaker_slug, languages, topics";
 
 our $DBH;
 our $SQL_COUNT     = 0;
@@ -72,14 +72,13 @@ sub parse_db_url {
                   /([^?]+)
                   (?:\?(.*))?
                  }x
-      )
-    {
+    ) {
         my ($user, $pass, $host, $port, $db, $query) = ($1, $2, $3, $4, $5, $6);
         $user = defined $user ? uri_unescape($user) : "postgres";
         $pass = defined $pass ? uri_unescape($pass) : "postgres";
         $port ||= 5432;
         $db =~ s/[?#].*//;
-        my $dsn = "dbi:Pg:host=$host;port=$port;dbname=$db";
+        my $dsn     = "dbi:Pg:host=$host;port=$port;dbname=$db";
         my $sslmode = "disable";
         if ($query) {
             my %q = map { split /=/, $_, 2 } split /&/, $query;
@@ -125,7 +124,7 @@ sub db_query {
 sub db_query_one {
     my ($sql, @bind) = @_;
     my $rows = db_query($sql, @bind);
-    return $rows && @$rows ? $rows->[0] : undef;
+    return $rows && @$rows ? $rows->[ 0 ] : undef;
 }
 
 sub as_string_array {
@@ -199,10 +198,9 @@ sub talks_for {
 
 sub talk_years {
     my ($slug) = @_;
-    my $rows = db_query(
-        "SELECT DISTINCT year FROM v1_talks WHERE speaker_slug = ? ORDER BY year DESC",
-        $slug
-    );
+    my $rows =
+        db_query("SELECT DISTINCT year FROM v1_talks WHERE speaker_slug = ? ORDER BY year DESC",
+        $slug);
     return [ map { 0 + $_->{year} } @$rows ];
 }
 
@@ -210,8 +208,7 @@ sub sponsor_years {
     my ($slug) = @_;
     my $rows = db_query(
         "SELECT DISTINCT year FROM v1_sponsorships WHERE sponsor_slug = ? ORDER BY year DESC",
-        $slug
-    );
+        $slug);
     return [ map { 0 + $_->{year} } @$rows ];
 }
 
@@ -229,8 +226,8 @@ sub list_speakers {
     }
     my $rows = db_query(
         "SELECT $SPEAKER_COLS FROM v1_speakers "
-          . "WHERE slug IN (SELECT speaker_slug FROM v1_talks WHERE year = ?) "
-          . "ORDER BY last_name, first_name",
+            . "WHERE slug IN (SELECT speaker_slug FROM v1_talks WHERE year = ?) "
+            . "ORDER BY last_name, first_name",
         $year
     );
     return attach_year_tags([ map { clean($_) } @$rows ], $year);
@@ -257,10 +254,9 @@ sub attach_year_tags {
 
 sub load_talks_for_year {
     my ($year) = @_;
-    my $rows = db_query(
-        "SELECT $TALK_COLS FROM v1_talks WHERE year = ? ORDER BY speaker_slug, year DESC",
-        $year
-    );
+    my $rows =
+        db_query("SELECT $TALK_COLS FROM v1_talks WHERE year = ? ORDER BY speaker_slug, year DESC",
+        $year);
     my %by;
     for my $row (@$rows) {
         my $talk = clean($row);
@@ -340,9 +336,12 @@ sub route {
         }
         return (200, { data => list_speakers($year) });
     }
-    if (@$parts == 4 && $parts->[0] eq "v1" && $parts->[1] eq "speakers" && $parts->[2] =~ /^\d+$/) {
-        my $year    = 0 + $parts->[2];
-        my $slug    = $parts->[3];
+    if (   @$parts == 4
+        && $parts->[ 0 ] eq "v1"
+        && $parts->[ 1 ] eq "speakers"
+        && $parts->[ 2 ] =~ /^\d+$/) {
+        my $year    = 0 + $parts->[ 2 ];
+        my $slug    = $parts->[ 3 ];
         my $speaker = load_speaker($slug);
         return (404, { error => "not_found" }) unless $speaker;
         my $talks = talks_for($slug, $year);
@@ -356,8 +355,8 @@ sub route {
         $speaker->{topics}      = uniq_tags($talks, "topics");
         return (200, { data => $speaker });
     }
-    if (@$parts == 3 && $parts->[0] eq "v1" && $parts->[1] eq "speakers") {
-        my $slug    = $parts->[2];
+    if (@$parts == 3 && $parts->[ 0 ] eq "v1" && $parts->[ 1 ] eq "speakers") {
+        my $slug    = $parts->[ 2 ];
         my $speaker = load_speaker($slug);
         return (404, { error => "not_found" }) unless $speaker;
         $speaker->{talks} = talks_for($slug);
@@ -369,21 +368,22 @@ sub route {
         if (defined $qs->{year} && length $qs->{year}) {
             $rows = db_query(
                 "SELECT $YEAR_SPONSOR_COLS FROM v1_year_sponsors WHERE year = ? ORDER BY name",
-                0 + $qs->{year}
-            );
+                0 + $qs->{year});
         }
         else {
             $rows = db_query("SELECT $SPONSOR_COLS FROM v1_sponsors ORDER BY name");
         }
         return (200, { data => [ map { clean($_) } @$rows ] });
     }
-    if (@$parts == 4 && $parts->[0] eq "v1" && $parts->[1] eq "sponsors" && $parts->[2] =~ /^\d+$/) {
-        my $year = 0 + $parts->[2];
-        my $slug = $parts->[3];
+    if (   @$parts == 4
+        && $parts->[ 0 ] eq "v1"
+        && $parts->[ 1 ] eq "sponsors"
+        && $parts->[ 2 ] =~ /^\d+$/) {
+        my $year = 0 + $parts->[ 2 ];
+        my $slug = $parts->[ 3 ];
         my $row  = db_query_one(
             "SELECT $YEAR_SPONSOR_COLS FROM v1_year_sponsors WHERE year = ? AND slug = ?",
-            $year, $slug
-        );
+            $year, $slug);
         $row = clean($row);
         return (404, { error => "not_found" }) unless $row;
         my $years = sponsor_years($slug);
@@ -391,8 +391,8 @@ sub route {
         $row->{other_years} = [ grep { $_ != $year } @$years ];
         return (200, { data => $row });
     }
-    if (@$parts == 3 && $parts->[0] eq "v1" && $parts->[1] eq "sponsors") {
-        my $slug = $parts->[2];
+    if (@$parts == 3 && $parts->[ 0 ] eq "v1" && $parts->[ 1 ] eq "sponsors") {
+        my $slug = $parts->[ 2 ];
         my $row  = db_query_one("SELECT $SPONSOR_COLS FROM v1_sponsors WHERE slug = ?", $slug);
         $row = clean($row);
         return (404, { error => "not_found" }) unless $row;
@@ -405,8 +405,8 @@ sub route {
 
 sub register_with_elixir {
     my ($port) = @_;
-    my $url   = $ENV{CAROLINA_URL};
-    my $token = $ENV{POLYGLOT_REGISTER_TOKEN};
+    my $url    = $ENV{CAROLINA_URL};
+    my $token  = $ENV{POLYGLOT_REGISTER_TOKEN};
     return unless defined $url && length $url && defined $token && length $token;
     my $base = $ENV{PUBLIC_BASE_URL} // "http://127.0.0.1:$port";
     $url =~ s{/$}{};
@@ -432,6 +432,7 @@ sub register_with_elixir {
             ),
         }
     );
+
     if ($resp->{success}) {
         warn "registered with elixir: $resp->{status}\n";
     }
@@ -440,9 +441,29 @@ sub register_with_elixir {
     }
 }
 
+# Bind first. A hung CMS must not sit on the accept path.
+sub spawn_registration {
+    my ($port, $daemon) = @_;
+    my $url   = $ENV{CAROLINA_URL};
+    my $token = $ENV{POLYGLOT_REGISTER_TOKEN};
+    return unless defined $url && length $url && defined $token && length $token;
+
+    my $pid = fork();
+    if (!defined $pid) {
+        warn "register fork failed: $!\n";
+        return;
+    }
+    if ($pid == 0) {
+        eval { $daemon->close if $daemon };
+        eval { register_with_elixir($port) };
+        require POSIX;
+        POSIX::_exit(0);
+    }
+    return;
+}
+
 sub main {
     my $port = $ENV{PORT} // "4006";
-    register_with_elixir($port);
 
     my $daemon = HTTP::Daemon->new(
         LocalAddr => listen_host(),
@@ -453,7 +474,15 @@ sub main {
     ) or die "HTTP::Daemon: $!";
     warn "carolina-codes-perl listening on :$port\n";
 
-    while (my $client = $daemon->accept) {
+    local $SIG{CHLD} = "IGNORE";
+    spawn_registration($port, $daemon);
+
+    while (1) {
+        my $client = $daemon->accept;
+        if (!$client) {
+            next if $!{EINTR};
+            last;
+        }
         eval {
             while (my $req = $client->get_request) {
                 if ($req->method ne "GET") {

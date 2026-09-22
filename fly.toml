@@ -16,7 +16,8 @@ primary_region = "iad"
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  # One machine stays up in iad so an idle period does not cold-start the process.
+  min_machines_running = 1
   processes = ["app"]
 
   [[http_service.checks]]

@@ -1,0 +1,20 @@
+# SAST gate for application Perl (app.pl).
+# Perl::Critic's named "security" theme is only TwoArgOpen + UTF8Layer.
+# This profile is the equivalent injection/command-exec/open gate.
+severity = 1
+verbose = 8
+color = 0
+only = 1
+
+[InputOutput::ProhibitBacktickOperators]
+[InputOutput::ProhibitTwoArgOpen]
+[InputOutput::ProhibitBarewordFileHandles]
+[InputOutput::ProhibitBarewordDirHandles]
+[InputOutput::RequireEncodingWithUTF8Layer]
+[Modules::ProhibitEvilModules]
+[BuiltinFunctions::ProhibitStringyEval]
+[InputOutput::RequireCheckedOpen]
+[InputOutput::ProhibitInteractiveTest]
+[InputOutput::ProhibitJoinedReadline]
+[InputOutput::RequireCheckedSyscalls]
+functions = system exec syscall pipe kill

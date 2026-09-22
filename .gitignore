@@ -1,1 +1,6 @@
 local/
+*.tdy
+*.bak
+*.ERR
+*.LOG
+.perlcritic-history
