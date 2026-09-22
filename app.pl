@@ -465,12 +465,15 @@ sub spawn_registration {
 sub main {
     my $port = $ENV{PORT} // "4006";
 
+    # AI_ADDRCONFIG drops :: when the host has no global IPv6 address, so the
+    # passive lookup has to ask for the address we named.
     my $daemon = HTTP::Daemon->new(
-        LocalAddr => listen_host(),
-        LocalPort => $port,
-        ReuseAddr => 1,
-        Listen    => 16,
-        V6Only    => 0,
+        LocalAddr        => listen_host(),
+        LocalPort        => $port,
+        ReuseAddr        => 1,
+        Listen           => 16,
+        V6Only           => 0,
+        GetAddrInfoFlags => 0,
     ) or die "HTTP::Daemon: $!";
     warn "carolina-codes-perl listening on :$port\n";
 

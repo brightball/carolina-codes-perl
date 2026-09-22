@@ -71,9 +71,10 @@ my $src = slurp("$FindBin::Bin/../app.pl");
 
 is(listen_host(), "::", "listen host is ::");
 unlike($src, qr/LocalAddr\s*=>\s*"0\.0\.0\.0"/, "source does not bind 0.0.0.0");
-like($src, qr/listen_host\(\)/, "daemon uses listen_host()");
-like($src, qr/sslmode=disable/, "DSN keeps sslmode=disable");
-like($src, qr/V6Only\s*=>\s*0/, "IPv6 bind is dual-stack (V6Only => 0)");
+like($src, qr/listen_host\(\)/,           "daemon uses listen_host()");
+like($src, qr/sslmode=disable/,           "DSN keeps sslmode=disable");
+like($src, qr/V6Only\s*=>\s*0/,           "IPv6 bind is dual-stack (V6Only => 0)");
+like($src, qr/GetAddrInfoFlags\s*=>\s*0/, "passive lookup does not set AI_ADDRCONFIG");
 
 my ($dsn) = parse_db_url("postgres://postgres:postgres\@127.0.0.1:5432/carolina_dev");
 like($dsn, qr/sslmode=disable/, "parse_db_url adds sslmode=disable");
