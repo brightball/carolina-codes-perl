@@ -2,6 +2,14 @@
 
 Read-only v1 polyglot API for Carolina Code Conference. Queries `v1_*` SQL views over `HTTP::Daemon` and `DBI`/`DBD::Pg`.
 
+Production language is the `perl:5.40-slim` image. The process reports that interpreter as `$^V` (`LANGUAGE_VERSION` in `app.pl`). A newer `perl` on a developer machine is not the project version.
+
+Framework is `HTTP::Daemon` 6.17.
+
+Runtime packages pinned in `cpanfile`: `HTTP::Message` 7.04, `HTTP::Tiny` 0.096, `DBI` 1.652, `DBD::Pg` 3.21.2, `JSON` 4.11, and `URI` 5.36. The test phase requires `Test::More` with no version pin. Develop-only pins, installed by `make deps` and left out of the production image: `Perl::Critic` 1.156, `Perl::Tidy` 20260826, and `CPAN::Audit` 20260622.001.
+
+Working notes for agents live in `AGENTS.md`, `MEMORY.md`, and `DECISIONS.md`.
+
 ```
 cpanm --local-lib=local --installdeps .
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/carolina_dev \
