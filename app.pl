@@ -11,12 +11,13 @@ use DBI;
 use JSON;
 use URI::Escape qw(uri_unescape);
 
-use constant LANGUAGE         => "Perl";
-use constant API_VERSION      => "0.2.0";
-use constant FRAMEWORK        => "HTTP::Daemon";
-use constant CREATED_YEAR     => 2026;
-use constant SCHEMA_VERSION   => 1;
-use constant LANGUAGE_VERSION => sprintf("%vd", $^V);
+use constant LANGUAGE            => "Perl";
+use constant API_VERSION         => "0.2.0";
+use constant FRAMEWORK           => "HTTP::Daemon";
+use constant CREATED_YEAR        => 2026;
+use constant SCHEMA_VERSION      => 1;
+use constant LANGUAGE_VERSION    => sprintf("%vd", $^V);
+use constant CLIENT_READ_TIMEOUT => 2;
 
 my $JSON = JSON->new->utf8->allow_nonref->canonical(0);
 
@@ -441,6 +442,35 @@ sub register_with_elixir {
     }
 }
 
+# get_request waits until the next byte. A quiet peer must not do that on the
+# accept path, so each client is served in its own child. The timeout makes
+# that child exit when the peer never finishes a request.
+sub serve_client {
+    my ($client) = @_;
+    $client->timeout(CLIENT_READ_TIMEOUT);
+    eval {
+        while (my $req = $client->get_request) {
+            if ($req->method ne "GET") {
+                send_json($client, 404, { error => "not_found" });
+                next;
+            }
+            my $uri  = $req->uri;
+            my $path = $uri->path // "/";
+            $path =~ s{/+$}{} unless $path eq "/";
+            $path = "/" unless length $path;
+            my @parts = grep { length } split m{/}, $path;
+            my $qs    = parse_query($uri);
+            my ($status, $payload) = route($path, \@parts, $qs);
+            send_json($client, $status, $payload);
+        }
+        1;
+    } or do {
+        my $err = $@ || "unknown error";
+        eval { send_json($client, 500, { error => "$err" }) };
+    };
+    return;
+}
+
 # Bind first. A hung CMS must not sit on the accept path.
 sub spawn_registration {
     my ($port, $daemon) = @_;
@@ -478,6 +508,7 @@ sub main {
     warn "carolina-codes-perl listening on :$port\n";
 
     local $SIG{CHLD} = "IGNORE";
+    require POSIX;
     spawn_registration($port, $daemon);
 
     while (1) {
@@ -486,26 +517,21 @@ sub main {
             next if $!{EINTR};
             last;
         }
-        eval {
-            while (my $req = $client->get_request) {
-                if ($req->method ne "GET") {
-                    send_json($client, 404, { error => "not_found" });
-                    next;
-                }
-                my $uri  = $req->uri;
-                my $path = $uri->path // "/";
-                $path =~ s{/+$}{} unless $path eq "/";
-                $path = "/" unless length $path;
-                my @parts = grep { length } split m{/}, $path;
-                my $qs    = parse_query($uri);
-                my ($status, $payload) = route($path, \@parts, $qs);
-                send_json($client, $status, $payload);
-            }
-            1;
-        } or do {
-            my $err = $@ || "unknown error";
-            eval { send_json($client, 500, { error => "$err" }) };
-        };
+        my $pid = fork();
+        if (!defined $pid) {
+            warn "client fork failed: $!\n";
+            serve_client($client);
+            $client->close;
+            undef $client;
+            next;
+        }
+        if ($pid == 0) {
+            $DBH = undef;
+            eval { $daemon->close };
+            serve_client($client);
+            $client->close;
+            POSIX::_exit(0);
+        }
         $client->close;
         undef $client;
     }

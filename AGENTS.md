@@ -93,6 +93,8 @@ If `CAROLINA_URL` or `POLYGLOT_REGISTER_TOKEN` is empty, skip registration. If t
 
 `listen_host` returns `::`. `HTTP::Daemon->new` sets `LocalAddr` to that host, `V6Only => 0`, `ReuseAddr => 1`, `Listen => 16`, and `GetAddrInfoFlags => 0`. Zero flags keep glibc from applying `AI_ADDRCONFIG`, which drops `::` on a host that has no global IPv6 address. With `V6Only` off, that socket is IPv6 dual-stack and also accepts IPv4.
 
+`accept` forks one child per client and returns to the listen loop. The child performs `get_request`. A quiet HTTP/1.1 socket, or a socket that never sends a complete request, must not stay in the parent. The child read timeout is `CLIENT_READ_TIMEOUT` (2 seconds).
+
 ## Layout
 
 | Path | Role |

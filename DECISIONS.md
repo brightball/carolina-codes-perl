@@ -57,3 +57,10 @@ Entries below are reconstructed from commits and from the code those commits lef
 - Decision: `HTTP::Daemon->new` sets `GetAddrInfoFlags => 0` in addition to `LocalAddr => "::"` and `V6Only => 0`.
 - Why: Commit `88cf51d`. glibc applies `AI_ADDRCONFIG` by default and hides `::` when the machine has no global IPv6 address. `HTTP::Daemon` then failed to bind inside the CI container. Asking for the named address, with `V6Only` left off, keeps the dual-stack socket.
 - Alternatives: Leave the default addrinfo flags (bind failed in CI). Listen on `0.0.0.0` only (loses IPv6). Require a global IPv6 address on every build host.
+
+## 2026-10-07 — One client must not occupy the accept loop
+
+- Status: accepted
+- Decision: After `accept`, fork a child and return the parent to `accept` immediately. The child closes the listening socket, clears any inherited `$DBH`, and calls `serve_client`. `SIGCHLD` stays `IGNORE`, so the child is reaped without a `wait` in the parent. The child sets a 2 second read timeout (`CLIENT_READ_TIMEOUT`) before `get_request`. A peer that has already received a response, or that never sends a complete request, blocks in that child. The next client is accepted by the parent.
+- Why: `HTTP::Daemon` 6.17 keeps an HTTP/1.1 connection open unless the client sends `Connection: close`, and `get_request` waits in `_need_more` until the next byte. The parent used to do that wait on the only accept loop, so one quiet socket stopped every later request, including `GET /health`. On 2026-10-07 a local hold of a finished `/health` socket made the next `/health` hit a 2 second timeout, and a socket that sent an unfinished header did the same. Fly machine health checks failed the same way (`context deadline exceeded` while awaiting headers) while `app.pl` itself had not changed since 2026-09-22.
+- Alternatives: A read timeout in the parent, which still leaves every other client waiting out that timeout. A pre-forked worker pool or extra Fly machines, which adds capacity and leaves the blocked accept loop in place. Replacing `HTTP::Daemon`.

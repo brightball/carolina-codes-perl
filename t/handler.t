@@ -291,6 +291,7 @@ is($CONNECT_COUNT, $connect_before, "/health still opens zero connections");
 is($CONNECT_COUNT, 1,               "the process kept a single DBI connection");
 
 launch_contract();
+launch_accept_concurrency();
 
 done_testing();
 
@@ -372,6 +373,82 @@ sub launch_contract {
     is($health_bodies[ 0 ], $health_bodies[ 1 ], "both launches return the same /health body");
     reap($stall_pid);
     alarm 0;
+    return;
+}
+
+sub launch_accept_concurrency {
+    local $SIG{ALRM} = sub { die "accept concurrency launch timed out\n" };
+    alarm 20;
+
+    my ($stall_pid, $stall_port, $stall_fh) = start_stall();
+    for my $n (1, 2) {
+        my $port = free_port();
+        my $pid  = start_app($port, $stall_port);
+        my $up   = fetch_until("http://127.0.0.1:$port/health", time() + 2);
+        ok($up, "accept $n server answered /health");
+
+        my $held = IO::Socket::INET->new(
+            PeerAddr => "127.0.0.1",
+            PeerPort => $port,
+            Timeout  => 2,
+        ) or die "held connect: $!";
+        $held->autoflush(1);
+        print $held "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        my $held_body = read_raw_body($held, 2);
+        like($held_body // "", qr/\A\{"ok":true\}\z/, "accept $n held socket got /health");
+
+        my $began   = time();
+        my $second  = HTTP::Tiny->new(timeout => 1)->get("http://127.0.0.1:$port/health");
+        my $elapsed = time() - $began;
+        is($second->{status}, 200,
+            "accept $n second /health status while the first socket stays open");
+        is($second->{content}, '{"ok":true}',
+            "accept $n second /health body while the first socket stays open");
+        ok($elapsed < 1, "accept $n second /health finished in under one second (${elapsed}s)");
+
+        my $idle = IO::Socket::INET->new(
+            PeerAddr => "127.0.0.1",
+            PeerPort => $port,
+            Timeout  => 2,
+        ) or die "idle connect: $!";
+        $idle->autoflush(1);
+        print $idle "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n";
+
+        $began = time();
+        my $third = HTTP::Tiny->new(timeout => 1)->get("http://127.0.0.1:$port/health");
+        $elapsed = time() - $began;
+        is($third->{status}, 200,
+            "accept $n /health status while a peer sends no complete request");
+        is($third->{content}, '{"ok":true}',
+            "accept $n /health body while a peer sends no complete request");
+        ok($elapsed < 1, "accept $n incomplete peer did not stall /health (${elapsed}s)");
+
+        close $held;
+        close $idle;
+        reap($pid);
+    }
+    reap($stall_pid);
+    alarm 0;
+    return;
+}
+
+sub read_raw_body {
+    my ($sock, $timeout) = @_;
+    my $buf      = "";
+    my $sel      = IO::Select->new($sock);
+    my $deadline = time() + $timeout;
+    while (time() < $deadline) {
+        my $remain = $deadline - time();
+        last if $remain <= 0;
+        last unless $sel->can_read($remain);
+        my $n = sysread($sock, $buf, 8192, length $buf);
+        last if !defined $n || $n == 0;
+        next unless $buf =~ /\r\n\r\n/;
+        my ($headers, $body) = split /\r\n\r\n/, $buf, 2;
+        my ($len) = $headers =~ /Content-Length:\s*(\d+)/i;
+        next unless defined $len;
+        return substr($body // "", 0, $len) if length($body // "") >= $len;
+    }
     return;
 }
 

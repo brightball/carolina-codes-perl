@@ -11,7 +11,8 @@ Short living notes for agents in this repository. Current instructions are in `A
 - The listen socket is `::` with `V6Only => 0` and `GetAddrInfoFlags => 0`. Dropping the zero flags makes glibc `AI_ADDRCONFIG` hide `::` on hosts with no global IPv6 address, and the daemon fails to bind.
 - `main` runs only when `app.pl` is the executed program (`main() unless caller`). Tests `require` the file and call the subs.
 - `parse_db_url` defaults `sslmode` to `disable` unless the URL already sets it. The local dev URL user and password are `postgres` / `postgres`.
-- One `$DBH` is reused while `ping` succeeds. `$CONNECT_FN` and `$QUERY_FN`, when set, replace the real connect and query path.
+- One `$DBH` is reused while `ping` succeeds inside that process. `$CONNECT_FN` and `$QUERY_FN`, when set, replace the real connect and query path.
+- The accept loop forks one child per client and closes the client socket in the parent. `get_request` blocks, and HTTP/1.1 leaves the socket open, so that wait has to stay in the child. The child read timeout is 2 seconds. The child sets `$DBH` to undef before it serves, then opens its own handle.
 
 ## Data
 
