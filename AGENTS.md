@@ -104,7 +104,7 @@ If `CAROLINA_URL` or `POLYGLOT_REGISTER_TOKEN` is empty, skip registration. If t
 | `Dockerfile` | `perl:5.40-slim` and the runtime modules. Develop tools stay out |
 | `Makefile` | `make check`, `make hooks`, and the individual gates |
 | `t/` | `prove` suite. `app.pl` runs `main` only when it is the executed program |
-| `fly.toml` | Fly service, including `min_machines_running = 1` in `iad` |
+| `fly.toml` | Fly service in `iad`. `min_machines_running = 0`, machines stop when idle, and traffic starts one |
 | `MEMORY.md` | Living gotchas |
 | `DECISIONS.md` | Append-only decisions |
 | `.perlcriticrc`, `.perltidyrc` | Critic profile and tidy settings |

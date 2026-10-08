@@ -38,7 +38,7 @@ Entries below are reconstructed from commits and from the code those commits lef
 
 ## 2026-09-22 — Registration stays off the accept path, and one Fly machine stays warm
 
-- Status: accepted
+- Status: accepted for registration. The warm floor is superseded by 2026-10-08.
 - Decision: Bind the listener, then fork registration. The child closes the inherited daemon socket, `POST`s with `HTTP::Tiny` (5 second timeout), and `POSIX::_exit`s. The parent ignores `SIGCHLD` and accepts immediately. An empty `CAROLINA_URL` or `POLYGLOT_REGISTER_TOKEN` skips the fork. A failed POST is a warning. Registration does not open Postgres. `fly.toml` sets `min_machines_running = 1` in `iad` so an idle period does not stop the only machine.
 - Why: Commit `1b7b424`. Register used to run in the parent before `listen`, so a CMS that accepted the TCP connection and never answered blocked `GET /health`. Fly's default idle stop cold-started the process. The prove suite covers the routes, bounded catalog SQL, connection reuse, and a CMS that never answers.
 - Alternatives: Register-then-listen, which was the code from `883dae4` through `c07fce5`. A heartbeat, which the CMS contract does not ask for. Scale-to-zero, which the warm-machine setting replaces.
@@ -64,3 +64,11 @@ Entries below are reconstructed from commits and from the code those commits lef
 - Decision: After `accept`, fork a child and return the parent to `accept` immediately. The child closes the listening socket, clears any inherited `$DBH`, and calls `serve_client`. `SIGCHLD` stays `IGNORE`, so the child is reaped without a `wait` in the parent. The child sets a 2 second read timeout (`CLIENT_READ_TIMEOUT`) before `get_request`. A peer that has already received a response, or that never sends a complete request, blocks in that child. The next client is accepted by the parent.
 - Why: `HTTP::Daemon` 6.17 keeps an HTTP/1.1 connection open unless the client sends `Connection: close`, and `get_request` waits in `_need_more` until the next byte. The parent used to do that wait on the only accept loop, so one quiet socket stopped every later request, including `GET /health`. On 2026-10-07 a local hold of a finished `/health` socket made the next `/health` hit a 2 second timeout, and a socket that sent an unfinished header did the same. Fly machine health checks failed the same way (`context deadline exceeded` while awaiting headers) while `app.pl` itself had not changed since 2026-09-22.
 - Alternatives: A read timeout in the parent, which still leaves every other client waiting out that timeout. A pre-forked worker pool or extra Fly machines, which adds capacity and leaves the blocked accept loop in place. Replacing `HTTP::Daemon`.
+
+## 2026-10-08 — Idle Fly machines stop
+
+- Status: accepted
+- Supersedes: the warm-floor part of the 2026-09-22 entry. Registration still runs off the accept path.
+- Decision: `fly.toml` for `carolina-codes-perl` sets `min_machines_running = 0`. `auto_stop_machines` stays `"stop"` and `auto_start_machines` stays `true`.
+- Why: Polyglot APIs stop when they have no traffic. The main application keeps a registered language API warm, so this process does not keep a machine running on its own.
+- Alternatives: `min_machines_running = 1`, which left a machine up through idle periods.

@@ -28,7 +28,7 @@ Short living notes for agents in this repository. Current instructions are in `A
 - Registration forks after bind. The child closes the listener and exits with `POSIX::_exit`. The parent ignores `SIGCHLD`.
 - The register POST times out in 5 seconds and does not open DBI. A missing URL or token skips it. Failure is a warning.
 - `endpoints` in the register body are `{ method, path, query }` objects, the same array `GET /` returns.
-- `fly.toml` keeps one machine up in `iad` (`min_machines_running = 1`). Health checks `GET /health`.
+- `fly.toml` sets `min_machines_running = 0` in `iad`, with `auto_stop_machines = "stop"` and `auto_start_machines = true`. Health checks `GET /health`. The main application keeps a registered API warm.
 
 ## Gates and workspace
 

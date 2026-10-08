@@ -20,7 +20,7 @@ PORT=4006 \
 perl app.pl
 ```
 
-`GET /health` returns `{"ok":true}` without touching Postgres. The listener binds IPv6 dual-stack (`::`). Registration runs beside that listener, so a slow CMS does not delay the first request. `fly.toml` keeps one machine running in `iad` (`min_machines_running = 1`).
+`GET /health` returns `{"ok":true}` without touching Postgres. The listener binds IPv6 dual-stack (`::`). Registration runs beside that listener, so a slow CMS does not delay the first request. `fly.toml` sets `min_machines_running = 0` with `auto_stop_machines = "stop"` and `auto_start_machines = true`, so an idle machine stops and traffic starts one.
 
 ```bash
 make test         # prove TAP suite (loads shipped app.pl)

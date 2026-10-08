@@ -559,12 +559,12 @@ sub reap {
 }
 
 sub fly_floor_ok {
-    my ($text)    = @_;
-    my ($min)     = $text =~ /min_machines_running\s*=\s*(\d+)/;
-    my ($stop)    = $text =~ /auto_stop_machines\s*=\s*"([^"]+)"/;
-    my $autostart = $text =~ /auto_start_machines\s*=\s*true/;
-    my $warm      = (defined $min && $min >= 1 && $autostart) || (defined $stop && $stop eq "off");
-    ok($warm, "fly keeps a machine running when idle");
+    my ($text)     = @_;
+    my ($min)      = $text =~ /min_machines_running\s*=\s*(\d+)/;
+    my ($stop)     = $text =~ /auto_stop_machines\s*=\s*"([^"]+)"/;
+    my $autostart  = $text =~ /auto_start_machines\s*=\s*true/;
+    my $scale_zero = defined $min && $min == 0 && $autostart && defined $stop && $stop eq "stop";
+    ok($scale_zero, "fly stops idle machines and starts one when traffic arrives");
     return;
 }
 
