@@ -563,8 +563,8 @@ sub fly_floor_ok {
     my ($min)      = $text =~ /min_machines_running\s*=\s*(\d+)/;
     my ($stop)     = $text =~ /auto_stop_machines\s*=\s*"([^"]+)"/;
     my $autostart  = $text =~ /auto_start_machines\s*=\s*true/;
-    my $scale_zero = defined $min && $min == 0 && $autostart && defined $stop && $stop eq "stop";
-    ok($scale_zero, "fly stops idle machines and starts one when traffic arrives");
+    my $scale_zero = defined $min && $min == 0 && $autostart && defined $stop && $stop eq "suspend";
+    ok($scale_zero, "fly suspends idle machines and starts one when traffic arrives");
     return;
 }
 
